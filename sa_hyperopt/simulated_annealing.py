@@ -1,3 +1,4 @@
+import logging
 import random
 
 import numpy as np
@@ -7,7 +8,7 @@ import pandas as pd
 
 class SimulatedAnnealingSearchCV:
 
-    def __init__(self, model, param_distributions: dict, scoring: str, n_jobs=1, cv=5):
+    def __init__(self, model, param_distributions: dict, scoring: str, n_jobs=1, cv: int = 5, seed: int = 0):
         self.model = model
         self.params = param_distributions
         self.scoring = scoring
@@ -18,12 +19,10 @@ class SimulatedAnnealingSearchCV:
         self.best_score_ = None
         self.score_tracker = []
         self.iterations = None
-        np.random.seed(0)
+        self.seed = seed
+        np.random.seed(self.seed)
 
-
-def fit(self, X: pd.DataFrame, y: pd.Series, cooling_rate: float = 0.01, initial_temperature: float = 10.0,
-            verbose: bool = False):
-
+    def fit(self, X: pd.DataFrame, y: pd.Series, cooling_rate: float = 0.01, initial_temperature: float = 10.0):
         params_dict = self.params.copy()
         params_current = {k: random.choice(v) for k, v in params_dict.items()}
         keys = [k for k, v in params_dict.items() if len(v) > 1]
@@ -41,8 +40,8 @@ def fit(self, X: pd.DataFrame, y: pd.Series, cooling_rate: float = 0.01, initial
 
         past_configs = []
         past_configs.append(params_current.values())
-        approx_iteratons = int(-np.log(initial_temperature) / (np.log(1 - cooling_rate))) + 1
-        no_improvement_threshold = int(approx_iteratons / 5 + 0.5)
+        approx_iterations = int(-np.log(initial_temperature) / (np.log(1 - cooling_rate))) + 1
+        no_improvement_threshold = int(approx_iterations / 5 + 0.5)
         iter_since_best = 0
 
         self.iterations = 0
@@ -66,8 +65,7 @@ def fit(self, X: pd.DataFrame, y: pd.Series, cooling_rate: float = 0.01, initial
             self.score_tracker.append(score_new)
             self.iterations += 1
 
-            if verbose:
-                print_log(score_temp, score_current, score_best, score_new, prob, self.iterations)
+            print_log(score_temp, score_current, score_best, score_new, prob, self.iterations)
 
             if score_temp >= score_best:
                 score_best = score_temp
@@ -84,16 +82,15 @@ def fit(self, X: pd.DataFrame, y: pd.Series, cooling_rate: float = 0.01, initial
                 params_current = params_best.copy()
                 score_current = score_best
                 iter_since_best = 0
-                if verbose:
-                    print(
-                        "No global improvements in the last {} iterations. Search restarted from best configuration so far".format(
-                            no_improvement_threshold))
+                logging.info(
+                    " No global improvements in the last {} iterations. Search restarted from best configuration so far".format(
+                        no_improvement_threshold))
 
         self.best_score_ = score_best
         self.best_params_ = params_best.copy()
         self.best_estimator_ = best_estimator
 
-        print("Best score found was {:.4f}".format(-self.best_score_))
+        logging.info(" Best score found was {:.4f}".format(-self.best_score_))
 
 
 def metropolis(config_old: dict, config_new: dict, score_old: float, score_new: float, temp: float):
@@ -117,20 +114,16 @@ def update_value(values: list, old_value):
 
 
 def print_log(score_temp, score_current, score_best, score_new, prob, iterations):
-    print("====================================================================")
-    print("Iteration {}:".format(iterations))
     if score_temp > score_current:
-        print(
-            "Local improvement from {:.4f} to {:.4f}, parameters updated".format(score_current, score_temp))
+        logging.info(" Iteration {}: Local improvement from {:.4f} to {:.4f}, parameters updated".format(
+            iterations, score_current, score_temp))
         if score_temp > score_best:
-            print("Global improvement from {:.4f} to {:.4f}, parameters updated".format(score_best,
-                                                                                        score_temp))
+            logging.info(" -> Global improvement from {:.4f} to {:.4f}, parameters updated".format(score_best, score_temp))
     elif score_new != score_current:
-        print(
-            "No improvement from {:.4f} to {:.4f} but parameters updated".format(score_current, score_temp))
-        print("Probability threshold for acceptance was {:.3f}".format(prob))
+        logging.info(" Iteration {}: No improvement from {:.4f} to {:.4f} but parameters updated".format(
+            iterations, score_current, score_temp))
+        logging.debug(" Probability threshold for acceptance was {:.3f}".format(prob))
     else:
-        print(
-            "No improvement from {:.4f} to {:.4f}, parameters unchanged".format(score_current, score_temp))
-        print("Probability threshold for acceptance was {:.3f}".format(prob))
-    print("--------------------------------------------------------------------")
+        logging.info(" Iteration {}: No improvement from {:.4f} to {:.4f}, parameters unchanged".format(
+            iterations, score_current, score_temp))
+        logging.debug(" Probability threshold for acceptance was {:.3f}".format(prob))
