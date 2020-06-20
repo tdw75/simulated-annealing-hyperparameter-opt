@@ -16,12 +16,19 @@ class SimulatedAnnealingSearchCV:
         self.n_jobs = n_jobs
         self.best_params_ = self.params.copy()
         self.best_estimator_ = self.model
-        self.best_score_ = None
+        self.best_score_ = -1000000
         self.score_tracker = []
         self.iterations = None
         self.seed = seed
         np.random.seed(self.seed)
         random.seed(self.seed)
+
+    @staticmethod
+    def update_value(values: list, old_value):
+        values_list = values.copy()
+        values_list.remove(old_value)
+        new_value = random.choice(values_list)
+        return new_value
 
     @staticmethod
     def calculate_reset_threshold(initial_temperature: float, cooling_rate: float) -> int:
@@ -53,24 +60,25 @@ class SimulatedAnnealingSearchCV:
         keys = [k for k, v in self.params.items() if len(v) > 1]
         weights = self.calculate_weights_for_param_distributions(self.params, keys)
 
-        self.best_params_ = params_current.copy()
-        self.model.set_params(**params_current)
-        cv_results = cross_validate(self.model, X=X, y=y, n_jobs=self.n_jobs, cv=self.cv, scoring=self.scoring)
-        score_current = cv_results['test_score'].mean()
-        self.best_score_ = score_current
-
-        past_configs = []
-        past_configs.append(params_current.values())
-
         temperature = initial_temperature
         no_improvement_threshold = self.calculate_reset_threshold(initial_temperature, cooling_rate)
         iter_since_best = 0
         self.iterations = 0
 
+        self.model.set_params(**params_current)
+        cv_results = cross_validate(self.model, X=X, y=y, n_jobs=self.n_jobs, cv=self.cv, scoring=self.scoring)
+        score_current = cv_results['test_score'].mean()
+        logging.info(" Initial iteration : Score of {:.4f} found".format(score_current))
+
+        self.best_params_ = params_current.copy()
+        self.best_score_ = score_current
+        past_configs = []
+        past_configs.append(params_current.values())
+
         while temperature > 1:
             key = random.choices(keys, weights)[0]
             params_temp = params_current.copy()
-            params_temp[key] = update_value(self.params[key], params_current[key])
+            params_temp[key] = self.update_value(self.params[key], params_current[key])
 
             if params_temp.values() in past_configs:
                 continue
@@ -83,10 +91,6 @@ class SimulatedAnnealingSearchCV:
             params_new, score_new, prob = metropolis(params_current, params_temp, score_current, score_temp,
                                                      temperature)
 
-            self.score_tracker.append(score_new)
-            self.iterations += 1
-            print_log(score_temp, score_current, self.best_score_, score_new, prob, self.iterations)
-
             if score_temp >= self.best_score_:
                 self.save_best_hyperparameter_config(score_temp, params_new, cv_results['estimator'][0])
                 iter_since_best = 0
@@ -95,6 +99,9 @@ class SimulatedAnnealingSearchCV:
 
             params_current, score_current = params_new, score_new
             temperature *= (1 - cooling_rate)
+            self.score_tracker.append(score_new)
+            self.iterations += 1
+            print_log(score_temp, score_current, self.best_score_, score_new, prob, self.iterations)
 
             if iter_since_best >= no_improvement_threshold:
                 params_current, score_current, iter_since_best = self.reset_to_current_best(no_improvement_threshold)
@@ -112,14 +119,6 @@ def metropolis(config_old: dict, config_new: dict, score_old: float, score_new: 
         return config_new, score_new, prob
     else:
         return config_old, score_old, prob
-
-
-def update_value(values: list, old_value):
-    values_list = values.copy()
-    values_list.remove(old_value)
-    new_value = random.choice(values_list)
-
-    return new_value
 
 
 def print_log(score_temp, score_current, score_best, score_new, prob, iterations):
